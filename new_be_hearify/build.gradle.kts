@@ -25,6 +25,7 @@ repositories {
 }
 
 dependencies {
+    //imple cua ktor, JWT
     implementation("io.ktor:ktor-server-core-jvm")
     implementation("io.ktor:ktor-server-auth-jvm")
     implementation("io.ktor:ktor-server-auth-jwt-jvm")
@@ -33,18 +34,28 @@ dependencies {
     implementation("io.ktor:ktor-server-websockets-jvm")
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm")
 
+    //imple cho db va ORM
     implementation("org.jetbrains.exposed:exposed-core:$exposed_version")
     implementation("org.jetbrains.exposed:exposed-jdbc:$exposed_version")
+    implementation("org.jetbrains.exposed:exposed-dao:$exposed_version")
+    implementation("org.xerial:sqlite-jdbc:3.47.0.0")
     implementation("com.h2database:h2:$h2_version")
+
+    //server va log
     implementation("io.ktor:ktor-server-netty-jvm")
     implementation("ch.qos.logback:logback-classic:$logback_version")
     implementation("io.ktor:ktor-server-config-yaml-jvm")
 
-    implementation("org.jetbrains.exposed:exposed-dao:$exposed_version")
+    //imple cho bao mat(bam password truoc khi luu vao db)
+    implementation("org.mindrot:jbcrypt:0.4")
 
-    //sqlite implementation
-    implementation("org.xerial:sqlite-jdbc:3.47.0.0")
+    //imple cho OAuth2 (auth bang gmail)
+    implementation("io.ktor:ktor-server-auth-oauth-jvm:2.4.1")
+    implementation("io.ktor:ktor-client-core-jvm:2.4.1")
+    implementation("io.ktor:ktor-client-apache-jvm:2.4.1")
 
+
+    //imple cho server test
     testImplementation("io.ktor:ktor-server-test-host-jvm")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version")
 }
