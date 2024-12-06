@@ -50,13 +50,14 @@ dependencies {
     implementation("org.mindrot:jbcrypt:0.4")
 
     //imple cho OAuth2 (auth bang gmail)
-    implementation("io.ktor:ktor-server-auth-oauth-jvm:2.4.1")
-    implementation("io.ktor:ktor-client-core-jvm:2.4.1")
-    implementation("io.ktor:ktor-client-apache-jvm:2.4.1")
+    implementation("io.ktor:ktor-server-auth-jvm:3.0.0") //update tren https://repo.maven.apache.org/maven2/io/ktor/ktor-server-auth-jvm/
+    implementation("io.ktor:ktor-client-core-jvm:3.0.0") //https://repo.maven.apache.org/maven2/io/ktor/ktor-client-core-jvm/
+    implementation("io.ktor:ktor-client-apache-jvm:3.0.0") //https://repo.maven.apache.org/maven2/io/ktor/ktor-client-apache-jvm/
 
 
     //imple cho server test
     testImplementation("io.ktor:ktor-server-test-host-jvm")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version")
+    implementation(kotlin("test"))
 }
 

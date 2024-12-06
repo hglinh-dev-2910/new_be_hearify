@@ -1,28 +1,29 @@
 package com.example.database
 
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
-import org.jetbrains.exposed.sql.update
+import org.mindrot.jbcrypt.BCrypt
 
-fun addUser(username: String, password: String): Boolean {
+fun addUser(username: String?, email: String, password: String?, oauthID: String?): Boolean {
     return transaction {
-        //kiem tra ton tai
-        val exists = UsersSchema.selectAll().where(UsersSchema.username eq username).empty().not()
-        if (exists) { //username da ton tai
-            println("User $username already exists!")
+        // Kiểm tra xem email đã tồn tại chưa
+        val exists = UsersSchema.selectAll().where { UsersSchema.email eq email }.singleOrNull()
+        if (exists != null) {
+            println("Email $email has!")
             return@transaction false
-        } else { //them username vao db
-            UsersSchema.insert {
-                it[UsersSchema.username] = username
-                it[UsersSchema.password] = password
-            }
-            println("User $username added to the database.")
-            return@transaction true
         }
 
+        // Thêm người dùng mới
+        UsersSchema.insert {
+            it[this.username] = username
+            it[this.email] = email
+            it[this.password] = password?.let { password -> BCrypt.hashpw(password, BCrypt.gensalt()) } // hash pw truoc khi luu
+            it[this.oauthID] = oauthID
+            it[this.isVerified] = true
+        }
+        println("User $email added successfully!.")
+        return@transaction true
     }
 }
 
@@ -55,5 +56,17 @@ fun deleteUser(username: String): Boolean {
             println("User $username does not exist.")
             false
         }
+    }
+}
+
+fun findUserByEmail(email: String): ResultRow? {
+    return transaction {
+        UsersSchema.selectAll().where { UsersSchema.email eq email }.singleOrNull()
+    }
+}
+
+fun findUserByUsername(username: String): ResultRow? {
+    return transaction {
+        UsersSchema.selectAll().where { UsersSchema.username eq username }.singleOrNull()
     }
 }
