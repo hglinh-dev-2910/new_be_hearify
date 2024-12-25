@@ -11,7 +11,9 @@ fun main(args: Array<String>) {
     io.ktor.server.netty.EngineMain.main(args)
 }
 
+
 fun Application.module() {
+
     initDatabase()
 
     //config cac thanh phan cua application
