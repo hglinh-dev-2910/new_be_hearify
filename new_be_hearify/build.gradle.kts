@@ -37,6 +37,7 @@ dependencies {
     //imple cho db va ORM
     implementation("org.jetbrains.exposed:exposed-core:$exposed_version")
     implementation("org.jetbrains.exposed:exposed-jdbc:$exposed_version")
+    implementation("org.jetbrains.exposed:exposed-java-time:$exposed_version")
     implementation("org.jetbrains.exposed:exposed-dao:$exposed_version")
     implementation("org.xerial:sqlite-jdbc:3.47.0.0")
     implementation("com.h2database:h2:$h2_version")
@@ -53,7 +54,9 @@ dependencies {
     implementation("io.ktor:ktor-server-auth-jvm:3.0.0") //update tren https://repo.maven.apache.org/maven2/io/ktor/ktor-server-auth-jvm/
     implementation("io.ktor:ktor-client-core-jvm:3.0.0") //https://repo.maven.apache.org/maven2/io/ktor/ktor-client-core-jvm/
     implementation("io.ktor:ktor-client-apache-jvm:3.0.0") //https://repo.maven.apache.org/maven2/io/ktor/ktor-client-apache-jvm/
-
+    implementation("com.auth0:java-jwt:4.x.x")
+    implementation("io.ktor:ktor-server-status-pages:2.x.x")
+    implementation("io.ktor:ktor-server-cors:2.x.x")
 
     //imple cho server test
     testImplementation("io.ktor:ktor-server-test-host-jvm")
