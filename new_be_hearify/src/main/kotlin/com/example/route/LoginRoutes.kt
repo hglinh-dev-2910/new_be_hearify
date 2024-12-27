@@ -18,6 +18,7 @@ fun Route.loginRoutes() {
         try {
             //json
             val request = call.receive<LoginRequest>()
+            println("request: $request")
 
             when (request.method) {
                 "traditional" -> {
@@ -32,21 +33,40 @@ fun Route.loginRoutes() {
                     val user = transaction {
                         UsersSchema.selectAll().where { UsersSchema.username eq username }.singleOrNull()
                     }
+                    println("user: $user")
 
                     if (user != null) {
+                        println("Was here")
+
                         val storedPassword = user[UsersSchema.password]
+                        println("storedPassword: $storedPassword")
+
+                        val userId = user[UsersSchema.id]
+                        println("userId: $userId")
+
                         val isValid = storedPassword != null && BCrypt.checkpw(password, storedPassword)
+                        println("isValid: $isValid")
 
-
+                        println("check before jwt")
                         //tao jwt token
                         if (isValid) {
                             val token = JWT.create()
                                 .withAudience("jwt-audience")
                                 .withIssuer("https://jwt-provider-domain/")
-                                .withClaim("username", username)
+                                //.withClaim("username", username)
+                                .withClaim("userId", userId)
                                 .sign(Algorithm.HMAC256("secret"))
 
-                            call.respond(mapOf("token" to token, "message" to "Login successful."))
+                            println("Token :$token  |   userId:$userId")
+
+                            call.respond(
+                                mapOf(
+                                    "token" to token,
+                                    "userId" to userId,
+                                    "message" to "Login successful."
+                                )
+                            )
+
                         } else {
                             call.respondText("Invalid username or password.")
                         }
@@ -65,7 +85,8 @@ fun Route.loginRoutes() {
                     }
 
                     val user = transaction {
-                        UsersSchema.selectAll().where { UsersSchema.email eq email and (UsersSchema.oauthID eq oauthID) }
+                        UsersSchema.selectAll()
+                            .where { UsersSchema.email eq email and (UsersSchema.oauthID eq oauthID) }
                             .singleOrNull()
                     }
 

@@ -46,6 +46,7 @@ dependencies {
     implementation("io.ktor:ktor-server-netty-jvm")
     implementation("ch.qos.logback:logback-classic:$logback_version")
     implementation("io.ktor:ktor-server-config-yaml-jvm")
+    implementation("io.ktor:ktor-client-cio:3.0.0")
 
     //imple cho bao mat(bam password truoc khi luu vao db)
     implementation("org.mindrot:jbcrypt:0.4")
