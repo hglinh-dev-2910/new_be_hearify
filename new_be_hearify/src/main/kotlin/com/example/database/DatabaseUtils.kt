@@ -65,7 +65,7 @@ fun findUserByEmail(email: String): ResultRow? {
     }
 }
 
-fun findUserByUsername(username: String): ResultRow? {
+fun findUserIdByUsername(username: String): ResultRow? {
     return transaction {
         UsersSchema.selectAll().where { UsersSchema.username eq username }.singleOrNull()
     }
