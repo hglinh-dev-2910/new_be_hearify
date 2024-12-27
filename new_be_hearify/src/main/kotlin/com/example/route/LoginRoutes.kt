@@ -16,7 +16,6 @@ import org.mindrot.jbcrypt.BCrypt
 fun Route.loginRoutes() {
     post("/login") {
         try {
-            //json
             val request = call.receive<LoginRequest>()
             println("request: $request")
 
@@ -36,24 +35,20 @@ fun Route.loginRoutes() {
                     println("user: $user")
 
                     if (user != null) {
-                        println("Was here")
-
                         val storedPassword = user[UsersSchema.password]
                         println("storedPassword: $storedPassword")
 
-                        val userId = user[UsersSchema.id]
+                        // Lấy giá trị Int của userId
+                        val userId = user[UsersSchema.id].value
                         println("userId: $userId")
 
                         val isValid = storedPassword != null && BCrypt.checkpw(password, storedPassword)
                         println("isValid: $isValid")
 
-                        println("check before jwt")
-                        //tao jwt token
                         if (isValid) {
                             val token = JWT.create()
                                 .withAudience("jwt-audience")
                                 .withIssuer("https://jwt-provider-domain/")
-                                //.withClaim("username", username)
                                 .withClaim("userId", userId)
                                 .sign(Algorithm.HMAC256("secret"))
 
@@ -91,13 +86,23 @@ fun Route.loginRoutes() {
                     }
 
                     if (user != null) {
+                        // Lấy giá trị Int của userId
+                        val userId = user[UsersSchema.id].value
+
                         val token = JWT.create()
                             .withAudience("jwt-audience")
                             .withIssuer("https://jwt-provider-domain/")
+                            .withClaim("userId", userId)
                             .withClaim("email", email)
                             .sign(Algorithm.HMAC256("secret"))
 
-                        call.respond(mapOf("token" to token, "message" to "Login successful."))
+                        call.respond(
+                            mapOf(
+                                "token" to token,
+                                "userId" to userId,
+                                "message" to "Login successful."
+                            )
+                        )
                     } else {
                         call.respondText("No account found for the provided email and OAuth ID.")
                     }
