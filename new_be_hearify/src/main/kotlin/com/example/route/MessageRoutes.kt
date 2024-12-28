@@ -1,13 +1,19 @@
 package com.example.route
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import com.example.database.MessagesSchema
 import com.example.database.UsersSchema
 import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -20,9 +26,9 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 
-//connection manager
-val connections = ConcurrentHashMap<Int, DefaultWebSocketSession>() //map userId va webSocket
-val mutex = Mutex() //dong bo hoa connections
+// Connection manager - sử dụng WebSocketServerSession để linh hoạt hơn
+val connections = ConcurrentHashMap<Int, WebSocketServerSession>()
+val mutex = Mutex()
 
 @Serializable
 data class ChatMessage(
@@ -41,109 +47,157 @@ data class ReadMessage(
     val messageIds: List<Int>
 )
 
-
-fun Route.messageRoutes() {
-    route("/messages") {
-        webSocket("/connect") {
-            val userId = call.parameters["userId"]?.toIntOrNull()
-            val isConnected = validateConnection(userId!!)
-
-            if (!isConnected) {
-                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid user ID"))
-                return@webSocket
-            }
-
-            mutex.withLock {
-                connections[userId] = this
-            }
-            println("User $userId connected")
-
-            // Khi user kết nối, gửi tất cả tin nhắn "pending" cho họ
-            val pendingMessages = fetchPendingMessages(userId)
-
-            val sentMessageIds = mutableListOf<Int>()
-            for (message in pendingMessages) {
-                try {
-                    send(Frame.Text(Json.encodeToString(message)))
-                    sentMessageIds.add(message.id) // If sent successfully, track the IDs
-                } catch (e: Exception) {
-                    println("Failed to send message ${message.id} to user $userId: ${e.message}")
-                }
-            }
-
-            // Mark sent messages as "sent"
-            if (sentMessageIds.isNotEmpty()) {
-                markMessagesAsSent(sentMessageIds)
-            }
-
-
-
-            try {
-                for (frame in incoming) {
-                    if (frame is Frame.Text) {
-                        val receivedText = frame.readText()
-                        println("Received from $userId: $receivedText")
-
-                        // Handle Read Action
-                        val decodedPayload = Json.decodeFromString<Map<String, Any>>(receivedText)
-                        if (decodedPayload["action"] == "read") {
-                            val readPayload = Json.decodeFromString<ReadMessage>(receivedText)
-                            markMessagesAsRead(readPayload.messageIds)
-                            println("Messages marked as read: ${readPayload.messageIds}")
-                            continue
-                        }
-                        // Handle New Chat Message
-                        val chatMessage = Json.decodeFromString<ChatMessage>(receivedText)
-
-                        // Validate Users
-                        if (!validateUsers(chatMessage.senderId, chatMessage.receiverId)) {
-                            send(Frame.Text("""{"status": "error", "message": "Sender or receiver does not exist"}"""))
-                            continue
-                        }
-                        // Store Message in Database
-                        val messageId = storeMessage(chatMessage)
-
-                        // Forward message if the receiver is online
-                        val receiverSession = connections[chatMessage.receiverId]
-                        if (receiverSession != null) {
-                            receiverSession.send(Frame.Text(receivedText))
-                            markMessagesAsSent(listOf(messageId)) // If sent successfully, mark as sent
-                        } else {
-                            println("Receiver ${chatMessage.receiverId} is offline. Message stored as pending.")
-                        }
-
-                        // Acknowledge to the sender
-                        send(Frame.Text("""{"status": "sent", "receiverId": ${chatMessage.receiverId}}"""))
-
-
-                    }
-                }
-            } catch (e: ClosedReceiveChannelException) {
-                println("User $userId disconnected with error: ${e.message}")
-            } finally {
-                mutex.withLock {
-                    connections.remove(userId)
-                }
-                println("User $userId disconnected")
+fun Application.messageRoutes() {
+    install(Authentication) {
+        jwt {
+            // Cấu hình JWT authentication
+            val jwtAudience = "jwt-audience"
+            val jwtIssuer = "https://jwt-provider-domain/"
+            realm = "Access to 'messages'"
+            verifier(
+                JWT
+                    .require(Algorithm.HMAC256("secret"))
+                    .withAudience(jwtAudience)
+                    .withIssuer(jwtIssuer)
+                    .build()
+            )
+            validate { credential ->
+                if (credential.payload.audience.contains(jwtAudience)) JWTPrincipal(credential.payload) else null
             }
         }
     }
 
-    // API lấy lịch sử tin nhắn giữa 2 người dùng
-    get("/history") {
-        val senderId = call.request.queryParameters["senderId"]?.toIntOrNull()
-        val receiverId = call.request.queryParameters["receiverId"]?.toIntOrNull()
+    routing {
+        authenticate { // Yêu cầu authentication cho route /messages
+            route("/messages") {
+                webSocket("/connect") {
+                    // Lấy userId từ principal
+                    val principal = call.principal<JWTPrincipal>()
+                    val userId = principal!!.payload.getClaim("userId").asInt()
 
-        if (senderId == null || receiverId == null) {
-            call.respondText("Invalid senderId or receiverId", status = HttpStatusCode.BadRequest)
-            return@get
+                    handleWebSocketConnection(userId, this) // Tách logic xử lý kết nối WebSocket ra hàm riêng
+                }
+
+                get("/history") {
+                    getChatHistory(call) // Tách logic xử lý API lấy lịch sử tin nhắn ra hàm riêng
+                }
+
+                get("/conversations") {
+                    val principal = call.principal<JWTPrincipal>()
+                    val userId = principal!!.payload.getClaim("userId").asInt()
+
+                    val conversations = getConversations(userId)
+                    call.respond(conversations)
+                }
+            }
         }
-
-        val history = fetchChatHistory(senderId, receiverId)
-        call.respond(history)
     }
 }
 
+// Hàm xử lý kết nối WebSocket
+private suspend fun handleWebSocketConnection(userId: Int, webSocketSession: WebSocketServerSession) {
+    val isConnected = validateConnection(userId)
+
+    if (!isConnected) {
+        webSocketSession.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid user ID"))
+        return
+    }
+
+    mutex.withLock {
+        connections[userId] = webSocketSession // Không cần ép kiểu nữa
+    }
+    println("User $userId connected")
+
+    // Gửi tin nhắn pending cho user
+    sendPendingMessages(userId, webSocketSession) // Tách logic gửi tin nhắn pending ra hàm riêng
+
+    try {
+        for (frame in webSocketSession.incoming) {
+            if (frame is Frame.Text) {
+                handleIncomingMessage(userId, frame, webSocketSession) // Tách logic xử lý tin nhắn đến ra hàm riêng
+            }
+        }
+    } catch (e: ClosedReceiveChannelException) {
+        println("User $userId disconnected with error: ${e.message}")
+    } finally {
+        mutex.withLock {
+            connections.remove(userId)
+        }
+        println("User $userId disconnected")
+    }
+}
+
+// Hàm gửi tin nhắn pending cho user
+private suspend fun sendPendingMessages(userId: Int, webSocketSession: WebSocketServerSession) {
+    val pendingMessages = fetchPendingMessages(userId)
+
+    val sentMessageIds = mutableListOf<Int>()
+    for (message in pendingMessages) {
+        try {
+            webSocketSession.send(Frame.Text(Json.encodeToString(message)))
+            sentMessageIds.add(message.id)
+        } catch (e: Exception) {
+            println("Failed to send message ${message.id} to user $userId: ${e.message}")
+        }
+    }
+
+    if (sentMessageIds.isNotEmpty()) {
+        markMessagesAsSent(sentMessageIds)
+    }
+}
+
+// Hàm xử lý tin nhắn đến
+private suspend fun handleIncomingMessage(userId: Int, frame: Frame.Text, webSocketSession: WebSocketServerSession) {
+    val receivedText = frame.readText()
+    println("Received from $userId: $receivedText")
+
+    // Handle Read Action
+    val decodedPayload = Json.decodeFromString<Map<String, Any>>(receivedText)
+    if (decodedPayload["action"] == "read") {
+        val readPayload = Json.decodeFromString<ReadMessage>(receivedText)
+        markMessagesAsRead(readPayload.messageIds)
+        println("Messages marked as read: ${readPayload.messageIds}")
+        return
+    }
+
+    // Handle New Chat Message
+    val chatMessage = Json.decodeFromString<ChatMessage>(receivedText)
+
+    // Validate Users
+    if (!validateUsers(chatMessage.senderId, chatMessage.receiverId)) {
+        webSocketSession.send(Frame.Text("""{"status": "error", "message": "Sender or receiver does not exist"}"""))
+        return
+    }
+
+    // Store Message in Database
+    val messageId = storeMessage(chatMessage)
+
+    // Forward message if the receiver is online
+    val receiverSession = connections[chatMessage.receiverId]
+    if (receiverSession != null && receiverSession.isActive) { // Kiểm tra isActive trước khi gửi tin nhắn
+        receiverSession.send(Frame.Text(receivedText))
+        markMessagesAsSent(listOf(messageId))
+    } else {
+        println("Receiver ${chatMessage.receiverId} is offline. Message stored as pending.")
+    }
+
+    // Acknowledge to the sender
+    webSocketSession.send(Frame.Text("""{"status": "sent", "receiverId": ${chatMessage.receiverId}}"""))
+}
+
+// Hàm xử lý API lấy lịch sử tin nhắn
+private suspend fun getChatHistory(call: ApplicationCall) {
+    val senderId = call.request.queryParameters["senderId"]?.toIntOrNull()
+    val receiverId = call.request.queryParameters["receiverId"]?.toIntOrNull()
+
+    if (senderId == null || receiverId == null) {
+        call.respondText("Invalid senderId or receiverId", status = HttpStatusCode.BadRequest)
+        return
+    }
+
+    val history = fetchChatHistory(senderId, receiverId)
+    call.respond(history)
+}
 
 // Lưu tin nhắn vào cơ sở dữ liệu
 fun storeMessage(chatMessage: ChatMessage): Int {
@@ -227,7 +281,6 @@ fun markMessagesAsSent(messageIds: List<Int>) {
     println("Marked messages as sent: $messageIds")
 }
 
-
 // Hàm kiểm tra `senderId` và `receiverId` có hợp lệ hay không
 fun validateUsers(senderId: Int, receiverId: Int): Boolean {
     return transaction {
@@ -245,4 +298,35 @@ fun validateConnection(userId: Int): Boolean {
     }
 }
 
+// Data class Conversation
+data class Conversation(
+    val receiverId: Int,
+    val lastMessage: String,
+    val timestamp: Long
+)
 
+// Hàm lấy danh sách cuộc trò chuyện
+private fun getConversations(userId: Int): List<Conversation> {
+    return transaction {
+        // Tìm tất cả các tin nhắn mà userId là người gửi hoặc người nhận
+        val messages = MessagesSchema.selectAll()
+            .where { (MessagesSchema.senderId eq userId) or (MessagesSchema.receiverId eq userId) }
+            .orderBy(MessagesSchema.timestamp, SortOrder.DESC)
+
+        // Group by người nhận/người gửi (người còn lại trong cuộc trò chuyện)
+        val conversations = messages.groupBy {
+            if (it[MessagesSchema.senderId] == userId) it[MessagesSchema.receiverId] else it[MessagesSchema.senderId]
+        }
+
+        // Lấy tin nhắn cuối cùng và thông tin cần thiết cho mỗi cuộc trò chuyện
+        conversations.map { (receiverId, messages) ->
+            val lastMessage = messages.first()
+            Conversation(
+                receiverId = receiverId,
+                lastMessage = lastMessage[MessagesSchema.content],
+                timestamp = lastMessage[MessagesSchema.timestamp].atZone(ZoneId.systemDefault()).toInstant()
+                    .toEpochMilli()
+            )
+        }
+    }
+}
