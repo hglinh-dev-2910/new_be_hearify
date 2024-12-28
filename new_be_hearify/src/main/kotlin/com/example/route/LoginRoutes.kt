@@ -68,7 +68,7 @@ fun Route.loginRoutes() {
                                 .withAudience("jwt-audience")
                                 .withIssuer("https://jwt-provider-domain/")
                                 //.withClaim("username", username)
-                                //.withClaim("userId", userId)
+                                .withClaim("userId", userId)
                                 .sign(Algorithm.HMAC256("secret"))
 
                             //println("Token :$token  |   userId:$userId")
